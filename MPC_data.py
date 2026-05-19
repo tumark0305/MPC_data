@@ -57,11 +57,60 @@ class MPC_data:
             self.raw_data.append(scope_info(_f.read()))
             _f.close()
         return None
+    def cal_R(self):
+        for scope in self.raw_data:
+            for row in scope.data:
+
+                ch3 = row.get('CH3')
+                ch4 = row.get('CH4')
+                if ch3 == 0:
+                    row['R'] = None
+                else:
+                    row['R'] = ch4 / ch3
+        return None
+    def get_pk(self):
+
+        for scope in self.raw_data:
+
+            scope.pk = {}
+
+            if len(scope.data) == 0:
+                continue
+
+            # 取得所有欄位名稱
+            keys = scope.data[0].keys()
+
+            for key in keys:
+
+                # 跳過時間
+                if key == 'TIME':
+                    continue
+
+                values = []
+
+                for row in scope.data:
+
+                    value = row.get(key)
+
+                    # 避免 None
+                    if isinstance(value, (int, float)):
+                        values.append(value)
+
+                if len(values) == 0:
+                    continue
+
+                scope.pk[key] = {
+                    'max': max(values),
+                    'min': min(values)
+                }
+
+        return None
             
 
 if __name__ == "__main__":
     _MPC = MPC_data()
-
+    _MPC.cal_R()
+    _MPC.get_pk()
     pass
 
 
