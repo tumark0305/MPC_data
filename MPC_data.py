@@ -453,10 +453,11 @@ if __name__ == "__main__":
     _MPC.kill_low_noise()
     _MPC.smooth()
     _MPC.get_pk()
-    _MPC.cut_tail()
+    
     _MPC.cut_IOosc()
     _MPC.cut_VOosc()
     _MPC.cal_R()
+    _MPC.cut_tail()
     _MPC.write_csv()
     pass
 
