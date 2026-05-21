@@ -1,6 +1,8 @@
 import os
 PATH = f"{os.getcwd()}/data/test2"
 
+PK_ONLY = True
+
 class scope_info:
     def __init__(self, raw_text):
         self.instrument_info = {}
@@ -267,6 +269,183 @@ class MPC_data:
                     row['CH3'] = ch3 + 0.4
 
         return None
+    def cut_VOosc(self):
+        resolution = 40
+        threshold = 4 * resolution   # 160 V
+        above = 1000;
+        self.voltage_pk = []
+        self.voltage_first_rise = []
+        for _idx in range(len(self.raw_data)):
+            data = self.raw_data[_idx].data
+
+            if len(data) < 2:
+                continue
+
+            ch4 = [row.get('CH4') for row in data]
+
+            first_peak_idx = None
+            has_valid_risen = False
+            rise_start_val = None
+            peak_val = None
+            peak_idx = None
+
+            first_above = True
+            for i in range(1, len(ch4)):
+                if ch4[i]  < above:
+                    continue
+                if first_above:
+                    first_above = False
+                    first_rise = i
+                    self.voltage_first_rise.append(first_rise)
+                if not isinstance(ch4[i], (int, float)):
+                    continue
+                if not isinstance(ch4[i - 1], (int, float)):
+                    continue
+
+                slope = ch4[i] - ch4[i - 1]
+
+                # 開始上升
+                if slope > 0:
+                    if rise_start_val is None:
+                        rise_start_val = ch4[i - 1]
+                        peak_val = ch4[i]
+                        peak_idx = i
+
+                    if ch4[i] > peak_val:
+                        peak_val = ch4[i]
+                        peak_idx = i
+
+                    # 上升幅度超過 4 個解析度，才算有效動作
+                    if peak_val - rise_start_val >= threshold and peak_val > 0:
+                        has_valid_risen = True
+
+                # 上升後開始下降，確認第一個有效峰值
+                elif slope < 0:
+                    if has_valid_risen:
+                        first_peak_idx = peak_idx
+                        break
+                    else:
+                        rise_start_val = None
+                        peak_val = None
+                        peak_idx = None
+
+            if first_peak_idx is None:
+                continue
+
+            cut_idx = len(data)
+            self.voltage_pk.append(first_peak_idx)
+            for i in range(first_peak_idx + 1, len(ch4)):
+                if not isinstance(ch4[i], (int, float)):
+                    continue
+                if not isinstance(ch4[i - 1], (int, float)):
+                    continue
+
+                crossing = ch4[i] * ch4[i - 1]
+
+                if ch4[i] < 0:
+                    cut_idx = i
+                    break
+
+            if PK_ONLY:
+                self.raw_data[_idx].data = data[first_rise:cut_idx-10]
+            else:
+                self.raw_data[_idx].data = data[:cut_idx]
+
+        return None
+
+    def cut_IOosc(self):
+        rise_count_limit = 3
+
+        resolution = 0.4
+        threshold = 4 * resolution   
+        above = 1.0               
+
+        self.current_pk = []
+        self.current_first_rise = []
+        for _idx in range(len(self.raw_data)):
+            data = self.raw_data[_idx].data
+
+            if len(data) < 2:
+                continue
+
+
+            ch3 = [row.get('CH3') for row in data]
+
+            first_peak_idx = None
+            has_valid_risen = False
+            rise_start_val = None
+            peak_val = None
+            peak_idx = None
+            first_above = True
+            for i in range(1, len(ch3)):
+                if not isinstance(ch3[i], (int, float)):
+                    continue
+                if not isinstance(ch3[i - 1], (int, float)):
+                    continue
+
+                if ch3[i] < above:
+                    continue
+                if first_above:
+                    first_above = False
+                    first_rise = i
+                    self.current_first_rise.append(first_rise)
+
+                slope = ch3[i] - ch3[i - 1]
+                if slope > 0:
+                    if rise_start_val is None:
+                        rise_start_val = ch3[i - 1]
+                        peak_val = ch3[i]
+                        peak_idx = i
+
+                    if ch3[i] > peak_val:
+                        peak_val = ch3[i]
+                        peak_idx = i
+                    if peak_val - rise_start_val >= threshold and peak_val > above:
+                        has_valid_risen = True
+                elif slope < 0:
+                    if has_valid_risen:
+                        first_peak_idx = peak_idx
+                        break
+                    else:
+                        rise_start_val = None
+                        peak_val = None
+                        peak_idx = None
+                        has_valid_risen = False
+
+            if first_peak_idx is None:
+                continue
+
+            rise_count = 0
+            cut_idx = len(data)
+            for i in range(first_peak_idx + 1, len(ch3)):
+                if not isinstance(ch3[i], (int, float)):
+                    rise_count = 0
+                    continue
+                if not isinstance(ch3[i - 1], (int, float)):
+                    rise_count = 0
+                    continue
+
+                slope = ch3[i] - ch3[i - 1]
+
+                if slope > 0:
+                    rise_count += 1
+                else:
+                    rise_count = 0
+
+                if rise_count >= rise_count_limit:
+                    cut_idx = i - rise_count_limit + 1
+                    break
+                if ch3[i] <= 0 :
+                    cut_idx = i - rise_count_limit + 1
+                    break
+
+            self.current_pk.append(first_peak_idx)
+            if PK_ONLY:
+                self.raw_data[_idx].data = data[first_rise:cut_idx]
+            else:
+                self.raw_data[_idx].data = data[:cut_idx]
+
+        return None
 
 if __name__ == "__main__":
     _MPC = MPC_data()
@@ -275,6 +454,8 @@ if __name__ == "__main__":
     _MPC.smooth()
     _MPC.get_pk()
     _MPC.cut_tail()
+    _MPC.cut_IOosc()
+    _MPC.cut_VOosc()
     _MPC.cal_R()
     _MPC.write_csv()
     pass
